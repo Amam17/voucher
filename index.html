@@ -209,15 +209,17 @@
                 
                 ctx.drawImage(img, 0, 0);
                 
-                // Set up the font to be regular (not bold) and slightly smaller
+                // Font settings
                 ctx.font = "26px sans-serif"; 
-                
-                // Move text to bottom left area
-                const xPosition = 25;
-                const yPosition = canvas.height - 35;
-                
-                // Draw the solid black text
                 ctx.fillStyle = "black"; 
+                
+                // Set text alignment to the right side
+                ctx.textAlign = "right";
+                
+                // Position: 25 pixels from the right edge, moved up to align with "30 Days"
+                const xPosition = canvas.width - 25;
+                const yPosition = canvas.height - 70; // Changed from -35 to -70 to raise the text
+                
                 ctx.fillText(textToStamp, xPosition, yPosition);
                 
                 resolve({
