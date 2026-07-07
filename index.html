@@ -112,27 +112,36 @@
     let finalY = 100;
     let previewImageObj = null;
 
+    // Helper function to force the browser to pause and clear memory
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
     fileInput.addEventListener('change', async () => {
         if (fileInput.files.length > 0) {
-            statusDiv.innerText = "Loading visual preview...";
+            statusDiv.innerText = "Step 1: Unzipping Excel file for preview... Please wait.";
             processBtn.disabled = true;
             
-            await new Promise(resolve => setTimeout(resolve, 50));
+            // Give the browser 100ms to update the text on the screen before freezing to unzip
+            await sleep(100);
             
             try {
-                const zip = await JSZip.loadAsync(fileInput.files[0]);
+                let zip = await JSZip.loadAsync(fileInput.files[0]);
                 const mediaFolder = zip.folder("xl/media");
                 
                 if (mediaFolder) {
                     const files = Object.keys(mediaFolder.files).filter(name => !mediaFolder.files[name].dir);
                     if (files.length > 0) {
+                        statusDiv.innerText = "Step 2: Extracting preview image...";
+                        await sleep(50);
+
                         const firstFile = mediaFolder.files[files[0]];
                         const blob = await firstFile.async("blob");
                         
                         const objectUrl = URL.createObjectURL(blob);
                         previewImageObj = new Image();
+                        
                         previewImageObj.onload = () => {
                             URL.revokeObjectURL(objectUrl);
+                            
                             finalX = 25;
                             finalY = previewImageObj.height - 35;
                             
@@ -141,13 +150,20 @@
                             
                             processBtn.disabled = false;
                             statusDiv.innerText = `${fileInput.files.length} file(s) loaded. Tap the image to place the text, then click Process.`;
+                            
+                            // Dump the zip from memory
+                            zip = null;
                         };
                         previewImageObj.src = objectUrl;
+                    } else {
+                        statusDiv.innerText = "No images found in the Excel file.";
                     }
+                } else {
+                    statusDiv.innerText = "File structure incorrect. No media folder found.";
                 }
             } catch (e) {
                 console.error(e);
-                statusDiv.innerText = "Error loading preview. You can still try to process.";
+                statusDiv.innerText = "Error loading preview. The file might be too large for the mobile browser.";
                 processBtn.disabled = false;
             }
         }
@@ -212,10 +228,16 @@
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
                 
-                const zip = await JSZip.loadAsync(file);
+                statusDiv.innerText = `File ${i + 1} of ${files.length}: Unzipping file...`;
+                await sleep(100); // Pause before heavy operation
+                
+                let zip = await JSZip.loadAsync(file);
                 const mediaFolder = zip.folder("xl/media");
                 
-                if (!mediaFolder) continue; 
+                if (!mediaFolder) {
+                    zip = null; // Clean up
+                    continue; 
+                }
 
                 const imageFileNames = Object.keys(mediaFolder.files).filter(name => !mediaFolder.files[name].dir);
                 
@@ -223,9 +245,10 @@
                     const filename = imageFileNames[j];
                     const fileObj = mediaFolder.files[filename];
                     
-                    statusDiv.innerText = `File ${i + 1} of ${files.length}: Processing image ${j + 1} of ${imageFileNames.length}...`;
+                    statusDiv.innerText = `File ${i + 1}: Processing image ${j + 1} of ${imageFileNames.length}...`;
                     
-                    await new Promise(resolve => setTimeout(resolve, 5));
+                    // Essential micro-pause to prevent the browser from freezing
+                    await sleep(15);
 
                     try {
                         const fileData = await fileObj.async("blob");
@@ -252,6 +275,10 @@
                         console.warn(`Could not process image ${filename}`);
                     }
                 }
+                
+                // CRITICAL: Dump the zip file from memory before moving to the next Excel file
+                zip = null; 
+                await sleep(50);
             }
 
             if (totalImageCount === 0) {
@@ -261,7 +288,7 @@
             }
 
             statusDiv.innerText = `Finalizing PDF with ${totalImageCount} vouchers. Building file...`;
-            await new Promise(resolve => setTimeout(resolve, 100)); 
+            await sleep(100); 
             
             doc.save("combined_stamped_vouchers.pdf");
             statusDiv.innerText = `Success! Generated combined PDF with ${totalImageCount} vouchers.`;
@@ -281,8 +308,7 @@
             img.onload = () => {
                 URL.revokeObjectURL(objectUrl);
                 
-                // MEMORY OPTIMIZATION: Downscale the image. 
-                // Original is ~1368px wide. Shrinking it to 400px saves massive amounts of RAM.
+                // Downscale the image to save massive amounts of RAM
                 const scaleDownFactor = 400 / img.width;
                 
                 const drawCanvas = document.createElement('canvas');
@@ -296,22 +322,26 @@
                 
                 ctx.drawImage(img, 0, 0, drawCanvas.width, drawCanvas.height);
                 
-                // Scale the text font size down proportionally so it looks exactly the same
                 const fontSize = Math.floor(26 * scaleDownFactor);
                 ctx.font = fontSize + "px sans-serif"; 
                 ctx.fillStyle = "black"; 
                 ctx.textAlign = "left";
                 
-                // Scale the tap coordinates so the text goes exactly where you tapped
                 const scaledX = finalX * scaleDownFactor;
                 const scaledY = finalY * scaleDownFactor;
                 
                 ctx.fillText(textToStamp, scaledX, scaledY);
                 
+                const finalDataUrl = drawCanvas.toDataURL("image/jpeg", 0.6);
+                
+                // CRITICAL MEMORY FIX: Destroy the canvas instantly so the RAM is emptied
+                drawCanvas.width = 0;
+                drawCanvas.height = 0;
+                
                 resolve({
-                    dataUrl: drawCanvas.toDataURL("image/jpeg", 0.6),
-                    width: drawCanvas.width,
-                    height: drawCanvas.height
+                    dataUrl: finalDataUrl,
+                    width: 400,
+                    height: img.height * scaleDownFactor
                 });
             };
             
