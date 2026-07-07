@@ -117,7 +117,6 @@
             statusDiv.innerText = "Loading visual preview...";
             processBtn.disabled = true;
             
-            // Allow the UI to update before doing heavy lifting
             await new Promise(resolve => setTimeout(resolve, 50));
             
             try {
@@ -133,7 +132,7 @@
                         const objectUrl = URL.createObjectURL(blob);
                         previewImageObj = new Image();
                         previewImageObj.onload = () => {
-                            URL.revokeObjectURL(objectUrl); // Free up memory immediately
+                            URL.revokeObjectURL(objectUrl);
                             finalX = 25;
                             finalY = previewImageObj.height - 35;
                             
@@ -226,8 +225,7 @@
                     
                     statusDiv.innerText = `File ${i + 1} of ${files.length}: Processing image ${j + 1} of ${imageFileNames.length}...`;
                     
-                    // Force the browser to render the text update and clear its head
-                    await new Promise(resolve => setTimeout(resolve, 15));
+                    await new Promise(resolve => setTimeout(resolve, 5));
 
                     try {
                         const fileData = await fileObj.async("blob");
@@ -248,8 +246,6 @@
                             doc.addImage(processedImg.dataUrl, 'JPEG', xPosition, yPosition, vWidth, vHeight);
                             
                             totalImageCount++;
-                            
-                            // Free up the processed image data from memory now that it is in the PDF
                             processedImg.dataUrl = null; 
                         }
                     } catch (err) {
@@ -264,7 +260,7 @@
                 return;
             }
 
-            statusDiv.innerText = `Finalizing PDF with ${totalImageCount} total stamped vouchers. Please wait...`;
+            statusDiv.innerText = `Finalizing PDF with ${totalImageCount} vouchers. Building file...`;
             await new Promise(resolve => setTimeout(resolve, 100)); 
             
             doc.save("combined_stamped_vouchers.pdf");
@@ -283,34 +279,44 @@
             const objectUrl = URL.createObjectURL(imageBlob);
             
             img.onload = () => {
-                URL.revokeObjectURL(objectUrl); // Delete the temp image from memory immediately
+                URL.revokeObjectURL(objectUrl);
+                
+                // MEMORY OPTIMIZATION: Downscale the image. 
+                // Original is ~1368px wide. Shrinking it to 400px saves massive amounts of RAM.
+                const scaleDownFactor = 400 / img.width;
                 
                 const drawCanvas = document.createElement('canvas');
                 const ctx = drawCanvas.getContext('2d');
                 
-                drawCanvas.width = img.width;
-                drawCanvas.height = img.height;
+                drawCanvas.width = 400;
+                drawCanvas.height = img.height * scaleDownFactor;
                 
                 ctx.fillStyle = "white";
                 ctx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
                 
-                ctx.drawImage(img, 0, 0);
+                ctx.drawImage(img, 0, 0, drawCanvas.width, drawCanvas.height);
                 
-                ctx.font = "26px sans-serif"; 
+                // Scale the text font size down proportionally so it looks exactly the same
+                const fontSize = Math.floor(26 * scaleDownFactor);
+                ctx.font = fontSize + "px sans-serif"; 
                 ctx.fillStyle = "black"; 
                 ctx.textAlign = "left";
                 
-                ctx.fillText(textToStamp, finalX, finalY);
+                // Scale the tap coordinates so the text goes exactly where you tapped
+                const scaledX = finalX * scaleDownFactor;
+                const scaledY = finalY * scaleDownFactor;
+                
+                ctx.fillText(textToStamp, scaledX, scaledY);
                 
                 resolve({
-                    dataUrl: drawCanvas.toDataURL("image/jpeg", 0.6), // Compression slightly increased to save memory
-                    width: img.width,
-                    height: img.height
+                    dataUrl: drawCanvas.toDataURL("image/jpeg", 0.6),
+                    width: drawCanvas.width,
+                    height: drawCanvas.height
                 });
             };
             
             img.onerror = () => {
-                URL.revokeObjectURL(objectUrl); // Prevent memory leak on failure
+                URL.revokeObjectURL(objectUrl);
                 reject(new Error("Format unsupported by canvas."));
             };
             
