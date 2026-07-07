@@ -112,7 +112,6 @@
     let finalY = 100;
     let previewImageObj = null;
 
-    // Helper function to force the browser to pause and clear memory
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
     fileInput.addEventListener('change', async () => {
@@ -120,7 +119,6 @@
             statusDiv.innerText = "Step 1: Unzipping Excel file for preview... Please wait.";
             processBtn.disabled = true;
             
-            // Give the browser 100ms to update the text on the screen before freezing to unzip
             await sleep(100);
             
             try {
@@ -128,7 +126,11 @@
                 const mediaFolder = zip.folder("xl/media");
                 
                 if (mediaFolder) {
-                    const files = Object.keys(mediaFolder.files).filter(name => !mediaFolder.files[name].dir);
+                    // Filter: Ensure it is strictly a PNG or JPG file, ignoring hidden XML or vector files
+                    const files = Object.keys(mediaFolder.files).filter(name => {
+                        return !mediaFolder.files[name].dir && name.match(/\.(png|jpe?g)$/i);
+                    });
+
                     if (files.length > 0) {
                         statusDiv.innerText = "Step 2: Extracting preview image...";
                         await sleep(50);
@@ -139,6 +141,7 @@
                         const objectUrl = URL.createObjectURL(blob);
                         previewImageObj = new Image();
                         
+                        // Safety Net 1: Successfully loaded
                         previewImageObj.onload = () => {
                             URL.revokeObjectURL(objectUrl);
                             
@@ -151,19 +154,30 @@
                             processBtn.disabled = false;
                             statusDiv.innerText = `${fileInput.files.length} file(s) loaded. Tap the image to place the text, then click Process.`;
                             
-                            // Dump the zip from memory
                             zip = null;
                         };
+
+                        // Safety Net 2: Failed to load
+                        previewImageObj.onerror = () => {
+                            URL.revokeObjectURL(objectUrl);
+                            statusDiv.innerText = "Error: Browser could not display the preview image format. You can still try processing.";
+                            processBtn.disabled = false;
+                            zip = null;
+                        };
+
+                        // Setting the source triggers the load or error events above
                         previewImageObj.src = objectUrl;
                     } else {
-                        statusDiv.innerText = "No images found in the Excel file.";
+                        statusDiv.innerText = "No standard web images (PNG/JPG) found in the Excel file.";
+                        processBtn.disabled = false;
                     }
                 } else {
                     statusDiv.innerText = "File structure incorrect. No media folder found.";
+                    processBtn.disabled = false;
                 }
             } catch (e) {
                 console.error(e);
-                statusDiv.innerText = "Error loading preview. The file might be too large for the mobile browser.";
+                statusDiv.innerText = "Error loading preview. The file might be corrupted or too large.";
                 processBtn.disabled = false;
             }
         }
@@ -229,17 +243,20 @@
                 const file = files[i];
                 
                 statusDiv.innerText = `File ${i + 1} of ${files.length}: Unzipping file...`;
-                await sleep(100); // Pause before heavy operation
+                await sleep(100); 
                 
                 let zip = await JSZip.loadAsync(file);
                 const mediaFolder = zip.folder("xl/media");
                 
                 if (!mediaFolder) {
-                    zip = null; // Clean up
+                    zip = null; 
                     continue; 
                 }
 
-                const imageFileNames = Object.keys(mediaFolder.files).filter(name => !mediaFolder.files[name].dir);
+                // Filter out non-images in the main loop as well
+                const imageFileNames = Object.keys(mediaFolder.files).filter(name => {
+                    return !mediaFolder.files[name].dir && name.match(/\.(png|jpe?g)$/i);
+                });
                 
                 for (let j = 0; j < imageFileNames.length; j++) {
                     const filename = imageFileNames[j];
@@ -247,7 +264,6 @@
                     
                     statusDiv.innerText = `File ${i + 1}: Processing image ${j + 1} of ${imageFileNames.length}...`;
                     
-                    // Essential micro-pause to prevent the browser from freezing
                     await sleep(15);
 
                     try {
@@ -276,7 +292,6 @@
                     }
                 }
                 
-                // CRITICAL: Dump the zip file from memory before moving to the next Excel file
                 zip = null; 
                 await sleep(50);
             }
@@ -308,7 +323,6 @@
             img.onload = () => {
                 URL.revokeObjectURL(objectUrl);
                 
-                // Downscale the image to save massive amounts of RAM
                 const scaleDownFactor = 400 / img.width;
                 
                 const drawCanvas = document.createElement('canvas');
@@ -334,7 +348,6 @@
                 
                 const finalDataUrl = drawCanvas.toDataURL("image/jpeg", 0.6);
                 
-                // CRITICAL MEMORY FIX: Destroy the canvas instantly so the RAM is emptied
                 drawCanvas.width = 0;
                 drawCanvas.height = 0;
                 
