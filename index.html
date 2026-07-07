@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voucher PDF Stamper</title>
+    <title>Voucher PDF Grid Stamper</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
@@ -81,8 +81,8 @@
 <body>
 
 <div class="container">
-    <h2>Voucher PDF Stamper</h2>
-    <p>Upload your Excel file to stamp a custom price and generate a print-ready PDF.</p>
+    <h2>Voucher PDF Grid Stamper</h2>
+    <p>Upload your Excel file to stamp a custom price and generate a 24-per-page A4 PDF.</p>
     
     <div class="input-group">
         <label for="priceInput">Enter Price / Text:</label>
@@ -132,12 +132,21 @@
             
             const pageWidth = doc.internal.pageSize.getWidth();
             const pageHeight = doc.internal.pageSize.getHeight();
-            const margin = 10;
-            let currentY = margin;
-            let imageCount = 0;
-            let isFirstPage = true;
+            
+            // --- GRID LAYOUT SETTINGS (24 Vouchers = 3 cols x 8 rows) ---
+            const margin = 10; // 10mm border around the entire A4 page
+            const gap = 3; // 3mm space between each voucher card
+            const columns = 3;
+            const rows = 8;
+            const vouchersPerPage = columns * rows; 
+            
+            // Calculate the exact width and height each voucher must be to fit the grid perfectly
+            const vWidth = (pageWidth - (margin * 2) - (gap * (columns - 1))) / columns;
+            const vHeight = (pageHeight - (margin * 2) - (gap * (rows - 1))) / rows;
 
-            statusDiv.innerText = `Stamping "${customPrice}" and building PDF pages...`;
+            let imageCount = 0;
+
+            statusDiv.innerText = `Stamping "${customPrice}" and building 24-voucher grid layout...`;
 
             for (const filename in mediaFolder.files) {
                 const fileObj = mediaFolder.files[filename];
@@ -148,23 +157,23 @@
                         const processedImg = await stampPriceOnImage(fileData, customPrice);
                         
                         if (processedImg) {
-                            // Calculate scaling to fit the A4 page width
-                            const maxImgWidth = pageWidth - (margin * 2);
-                            const scale = maxImgWidth / processedImg.width;
-                            const scaledHeight = processedImg.height * scale;
-
-                            // If the image exceeds the remaining page height, add a new page
-                            if (currentY + scaledHeight > pageHeight - margin && !isFirstPage) {
+                            // If the current page is full (has 24 images on it), create a new blank page
+                            if (imageCount > 0 && imageCount % vouchersPerPage === 0) {
                                 doc.addPage();
-                                currentY = margin;
                             }
 
-                            // Add image to PDF
-                            doc.addImage(processedImg.dataUrl, 'JPEG', margin, currentY, maxImgWidth, scaledHeight);
+                            // Calculate exactly which column and row this image belongs in
+                            const currentIndexOnPage = imageCount % vouchersPerPage;
+                            const col = currentIndexOnPage % columns;
+                            const row = Math.floor(currentIndexOnPage / columns);
+
+                            // Calculate the X and Y coordinate on the PDF page
+                            const xPosition = margin + (col * (vWidth + gap));
+                            const yPosition = margin + (row * (vHeight + gap));
+
+                            // Add image to PDF exactly inside its grid slot
+                            doc.addImage(processedImg.dataUrl, 'JPEG', xPosition, yPosition, vWidth, vHeight);
                             
-                            // Move the Y coordinate down for the next image, plus some spacing
-                            currentY += scaledHeight + (margin / 2);
-                            isFirstPage = false;
                             imageCount++;
                         }
                     } catch (err) {
@@ -182,8 +191,8 @@
             statusDiv.innerText = `Finalizing PDF with ${imageCount} stamped vouchers...`;
             
             // Trigger PDF download
-            doc.save("stamped_vouchers.pdf");
-            statusDiv.innerText = `Success! Downloaded stamped_vouchers.pdf`;
+            doc.save("stamped_vouchers_grid.pdf");
+            statusDiv.innerText = `Success! Downloaded stamped_vouchers_grid.pdf`;
 
         } catch (error) {
             console.error(error);
@@ -192,7 +201,6 @@
         processBtn.disabled = false;
     });
 
-    // Returns a Base64 Data URL specifically for jsPDF
     function stampPriceOnImage(imageBlob, textToStamp) {
         return new Promise((resolve, reject) => {
             const img = new Image();
@@ -213,7 +221,7 @@
                 ctx.fillStyle = "red"; 
                 ctx.font = "bold 32px sans-serif"; 
                 
-                // Adjust coordinates here if the text is in the wrong spot
+                // Text coordinates on the original image canvas
                 const xPosition = 25;
                 const yPosition = 50;
                 
