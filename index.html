@@ -48,6 +48,11 @@
             border-radius: 6px;
             box-sizing: border-box;
         }
+        .slider-input {
+            width: 100%;
+            margin-top: 5px;
+            cursor: pointer;
+        }
         .file-input {
             margin: 20px 0;
             padding: 15px;
@@ -82,11 +87,16 @@
 
 <div class="container">
     <h2>Visual Voucher PDF Stamper</h2>
-    <p>Upload your Excel files, tap the image to place your price, then process.</p>
+    <p>Upload your Excel files, tap the image to place your price, adjust the size, then process.</p>
     
     <div class="input-group">
         <label for="priceInput">Enter Price / Text:</label>
         <input type="text" id="priceInput" class="text-input" value="₦300" />
+    </div>
+
+    <div class="input-group">
+        <label for="fontSizeInput">Text Size: <span id="fontSizeDisplay">26</span>px</label>
+        <input type="range" id="fontSizeInput" class="slider-input" min="10" max="80" value="26" />
     </div>
 
     <input type="file" id="excelFile" class="file-input" accept=".xlsx" multiple />
@@ -103,6 +113,8 @@
 <script>
     const fileInput = document.getElementById('excelFile');
     const priceInput = document.getElementById('priceInput');
+    const fontSizeInput = document.getElementById('fontSizeInput');
+    const fontSizeDisplay = document.getElementById('fontSizeDisplay');
     const processBtn = document.getElementById('processBtn');
     const statusDiv = document.getElementById('status');
     const previewArea = document.getElementById('previewArea');
@@ -110,9 +122,17 @@
 
     let finalX = 25;
     let finalY = 100;
+    let currentFontSize = 26;
     let previewImageObj = null;
 
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+    // Update the font size when the slider is dragged
+    fontSizeInput.addEventListener('input', () => {
+        currentFontSize = parseInt(fontSizeInput.value, 10);
+        fontSizeDisplay.innerText = currentFontSize;
+        drawPreview();
+    });
 
     fileInput.addEventListener('change', async () => {
         if (fileInput.files.length > 0) {
@@ -190,7 +210,8 @@
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(previewImageObj, 0, 0);
         
-        ctx.font = "26px sans-serif";
+        // Use the slider value for the font size
+        ctx.font = currentFontSize + "px sans-serif";
         ctx.fillStyle = "black";
         ctx.textAlign = "left";
         
@@ -321,7 +342,6 @@
                 const drawCanvas = document.createElement('canvas');
                 const ctx = drawCanvas.getContext('2d');
                 
-                // RESTORED: Using maximum original quality and full resolution
                 drawCanvas.width = img.width;
                 drawCanvas.height = img.height;
                 
@@ -330,17 +350,15 @@
                 
                 ctx.drawImage(img, 0, 0, drawCanvas.width, drawCanvas.height);
                 
-                ctx.font = "26px sans-serif"; 
+                // Use the exact slider size for the final export
+                ctx.font = currentFontSize + "px sans-serif"; 
                 ctx.fillStyle = "black"; 
                 ctx.textAlign = "left";
                 
-                // Using the exact tap coordinates directly on the full resolution canvas
                 ctx.fillText(textToStamp, finalX, finalY);
                 
-                // RESTORED: Exporting at high-quality 0.9 JPEG
                 const finalDataUrl = drawCanvas.toDataURL("image/jpeg", 0.9);
                 
-                // Critical memory fix remains intact
                 drawCanvas.width = 0;
                 drawCanvas.height = 0;
                 
@@ -363,3 +381,4 @@
 
 </body>
 </html>
+ 
