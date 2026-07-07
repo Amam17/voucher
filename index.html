@@ -82,7 +82,7 @@
 
 <div class="container">
     <h2>Visual Voucher PDF Stamper</h2>
-    <p>Upload your Excel files, then tap the image below to place your price exactly where you want it.</p>
+    <p>Upload your Excel files, tap the image to place your price, then process.</p>
     
     <div class="input-group">
         <label for="priceInput">Enter Price / Text:</label>
@@ -108,12 +108,10 @@
     const previewArea = document.getElementById('previewArea');
     const canvas = document.getElementById('previewCanvas');
 
-    // These variables will store the exact X and Y coordinates you tap on
     let finalX = 25;
     let finalY = 100;
     let previewImageObj = null;
 
-    // Listen for file uploads to generate the preview
     fileInput.addEventListener('change', async () => {
         if (fileInput.files.length > 0) {
             statusDiv.innerText = "Loading visual preview...";
@@ -131,7 +129,6 @@
                         
                         previewImageObj = new Image();
                         previewImageObj.onload = () => {
-                            // Set initial default position for the text
                             finalX = 25;
                             finalY = previewImageObj.height - 35;
                             
@@ -152,7 +149,6 @@
         }
     });
 
-    // Draw the image and the text on the canvas
     function drawPreview() {
         if (!previewImageObj) return;
         const ctx = canvas.getContext('2d');
@@ -172,10 +168,8 @@
         ctx.fillText(customPrice, finalX, finalY);
     }
 
-    // Update the preview immediately if you change the text in the input box
     priceInput.addEventListener('input', drawPreview);
 
-    // Calculate exactly where your finger tapped on the canvas
     canvas.addEventListener('pointerdown', (e) => {
         const rect = canvas.getBoundingClientRect();
         const scaleX = canvas.width / rect.width;
@@ -187,7 +181,6 @@
         drawPreview();
     });
 
-    // Process all files when the button is clicked
     processBtn.addEventListener('click', async () => {
         const files = fileInput.files;
         const customPrice = priceInput.value.trim() || "₦300";
@@ -214,42 +207,47 @@
         try {
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
-                statusDiv.innerText = `Processing file ${i + 1} of ${files.length}...`;
-
+                
                 const zip = await JSZip.loadAsync(file);
                 const mediaFolder = zip.folder("xl/media");
                 
-                if (!mediaFolder) {
-                    continue; 
-                }
+                if (!mediaFolder) continue; 
 
-                for (const filename in mediaFolder.files) {
+                // Get all valid image files in this Excel document
+                const imageFileNames = Object.keys(mediaFolder.files).filter(name => !mediaFolder.files[name].dir);
+                
+                for (let j = 0; j < imageFileNames.length; j++) {
+                    const filename = imageFileNames[j];
                     const fileObj = mediaFolder.files[filename];
                     
-                    if (!fileObj.dir) {
-                        try {
-                            const fileData = await fileObj.async("blob");
-                            const processedImg = await stampPriceOnImage(fileData, customPrice);
-                            
-                            if (processedImg) {
-                                if (totalImageCount > 0 && totalImageCount % vouchersPerPage === 0) {
-                                    doc.addPage();
-                                }
+                    // Live UI update to show exact progress and prevent freezing
+                    statusDiv.innerText = `File ${i + 1} of ${files.length}: Processing image ${j + 1} of ${imageFileNames.length}...`;
+                    
+                    // Force the browser to take a tiny 10-millisecond break so the screen doesn't freeze
+                    await new Promise(resolve => setTimeout(resolve, 10));
 
-                                const currentIndexOnPage = totalImageCount % vouchersPerPage;
-                                const col = currentIndexOnPage % columns;
-                                const row = Math.floor(currentIndexOnPage / columns);
-
-                                const xPosition = margin + (col * (vWidth + gap));
-                                const yPosition = margin + (row * (vHeight + gap));
-
-                                doc.addImage(processedImg.dataUrl, 'JPEG', xPosition, yPosition, vWidth, vHeight);
-                                
-                                totalImageCount++;
+                    try {
+                        const fileData = await fileObj.async("blob");
+                        const processedImg = await stampPriceOnImage(fileData, customPrice);
+                        
+                        if (processedImg) {
+                            if (totalImageCount > 0 && totalImageCount % vouchersPerPage === 0) {
+                                doc.addPage();
                             }
-                        } catch (err) {
-                            console.warn(`Could not process image ${filename}`);
+
+                            const currentIndexOnPage = totalImageCount % vouchersPerPage;
+                            const col = currentIndexOnPage % columns;
+                            const row = Math.floor(currentIndexOnPage / columns);
+
+                            const xPosition = margin + (col * (vWidth + gap));
+                            const yPosition = margin + (row * (vHeight + gap));
+
+                            doc.addImage(processedImg.dataUrl, 'JPEG', xPosition, yPosition, vWidth, vHeight);
+                            
+                            totalImageCount++;
                         }
+                    } catch (err) {
+                        console.warn(`Could not process image ${filename}`);
                     }
                 }
             }
@@ -260,7 +258,8 @@
                 return;
             }
 
-            statusDiv.innerText = `Finalizing PDF with ${totalImageCount} total stamped vouchers...`;
+            statusDiv.innerText = `Finalizing PDF with ${totalImageCount} total stamped vouchers. Please wait...`;
+            await new Promise(resolve => setTimeout(resolve, 50)); // One last breath before building the PDF
             
             doc.save("combined_stamped_vouchers.pdf");
             statusDiv.innerText = `Success! Generated combined PDF with ${totalImageCount} vouchers.`;
@@ -292,11 +291,11 @@
                 ctx.fillStyle = "black"; 
                 ctx.textAlign = "left";
                 
-                // Uses the exact X and Y coordinates from your tap on the preview!
                 ctx.fillText(textToStamp, finalX, finalY);
                 
                 resolve({
-                    dataUrl: drawCanvas.toDataURL("image/jpeg", 0.9),
+                    // Quality reduced from 0.9 to 0.7 to drastically improve mobile memory usage
+                    dataUrl: drawCanvas.toDataURL("image/jpeg", 0.7),
                     width: img.width,
                     height: img.height
                 });
