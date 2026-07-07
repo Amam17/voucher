@@ -82,6 +82,183 @@
 
 <div class="container">
     <h2>Voucher Price Stamper</h2>
+    <p>Upload your Excel file to stamp a custom price directly onto the embedded vouchers.</p>
+    
+    <div class="input-group">
+        <label for="priceInput">Enter Price / Text:</label>
+        <input type="text" id="priceInput" class="text-input" value="₦300" placeholder="e.g. ₦300, ₦500, Free" />
+    </div>
+
+    <input type="file" id="excelFile" class="file-input" accept=".xlsx" />
+    <button id="processBtn" disabled>Process and Download Excel File</button>
+    
+    <div id="status">Ready. Select a file to begin.</div>
+</div>
+
+<script>
+    const fileInput = document.getElementById('excelFile');
+    const priceInput = document.getElementById('priceInput');
+    const processBtn = document.getElementById('processBtn');
+    const statusDiv = document.getElementById('status');
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length > 0) {
+            processBtn.disabled = false;
+            statusDiv.innerText = "File loaded. Ready to process.";
+        }
+    });
+
+    processBtn.addEventListener('click', async () => {
+        const file = fileInput.files[0];
+        const customPrice = priceInput.value.trim() || "₦300";
+        if (!file) return;
+
+        processBtn.disabled = true;
+        statusDiv.innerText = "Unpacking Excel archive...";
+
+        try {
+            // Load the original Excel file structure
+            const zip = await JSZip.loadAsync(file);
+            let imageCount = 0;
+
+            const mediaFolder = zip.folder("xl/media");
+            
+            if (!mediaFolder) {
+                statusDiv.innerText = "Error: No 'xl/media/' folder found. The images might be linked differently.";
+                processBtn.disabled = false;
+                return;
+            }
+
+            statusDiv.innerText = `Stamping "${customPrice}" directly into the Excel file...`;
+
+            for (const filename in mediaFolder.files) {
+                const fileObj = mediaFolder.files[filename];
+                
+                if (!fileObj.dir) {
+                    try {
+                        const fileData = await fileObj.async("blob");
+                        const processedBlob = await stampPriceOnImage(fileData, customPrice);
+                        
+                        if (processedBlob) {
+                            // Overwrite the original image inside the Excel structure with the new stamped one
+                            zip.file(fileObj.name, processedBlob);
+                            imageCount++;
+                        }
+                    } catch (err) {
+                        console.warn(`Could not process: ${filename}`);
+                    }
+                }
+            }
+
+            if (imageCount === 0) {
+                statusDiv.innerText = `Failed to process the images. Ensure the file is not corrupted.`;
+                processBtn.disabled = false;
+                return;
+            }
+
+            statusDiv.innerText = `Rebuilding Excel file with ${imageCount} stamped vouchers...`;
+            
+            // Generate the final file as a valid Excel document (.xlsx)
+            const finalExcel = await zip.generateAsync({ 
+                type: "blob",
+                mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            });
+            
+            saveAs(finalExcel, "stamped_vouchers.xlsx");
+            statusDiv.innerText = `Success! Downloaded stamped_vouchers.xlsx with ${imageCount} updated images.`;
+
+        } catch (error) {
+            console.error(error);
+            statusDiv.innerText = "An error occurred while modifying the Excel file.";
+        }
+        processBtn.disabled = false;
+    });
+
+    function stampPriceOnImage(imageBlob, textToStamp) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                canvas.width = img.width;
+                canvas.height = img.height;
+                
+                ctx.drawImage(img, 0, 0);
+                
+                ctx.fillStyle = "red"; 
+                ctx.font = "bold 32px sans-serif"; 
+                
+                const xPosition = 25;
+                const yPosition = 50;
+                
+                ctx.fillText(textToStamp, xPosition, yPosition);
+                
+                canvas.toBlob((blob) => {
+                    resolve(blob);
+                }, "image/png");
+            };
+            
+            img.onerror = () => {
+                reject(new Error("Format unsupported by canvas."));
+            };
+            
+            img.src = URL.createObjectURL(imageBlob);
+        });
+    }
+</script>
+
+</body>
+</html>
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            font-size: 14px;
+            color: #444;
+        }
+        .text-input {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+        .file-input {
+            margin: 20px 0;
+            padding: 15px;
+            border: 2px dashed #1a73e8;
+            border-radius: 8px;
+            background: #f8fafd;
+            cursor: pointer;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            width: 100%;
+            font-weight: bold;
+        }
+        button:disabled { background-color: #ccc; }
+        #status {
+            margin-top: 20px;
+            font-weight: bold;
+            color: #2b2b2b;
+            word-break: break-word;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Voucher Price Stamper</h2>
     <p>Upload your Excel file to stamp a custom price onto every embedded voucher card layout.</p>
     
     <div class="input-group">
