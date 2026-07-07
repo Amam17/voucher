@@ -124,18 +124,16 @@
         const pageHeight = doc.internal.pageSize.getHeight();
         
         // --- GRID LAYOUT SETTINGS (24 Vouchers = 2 cols x 12 rows) ---
-        const margin = 10; // 10mm border around the entire A4 page
-        const gap = 3; // 3mm space between each voucher card
+        const margin = 10; 
+        const gap = 3; 
         const columns = 2;
         const rows = 12;
         const vouchersPerPage = columns * rows; 
         
-        // Calculate the exact width and height each voucher must be
         const vWidth = (pageWidth - (margin * 2) - (gap * (columns - 1))) / columns;
         const vHeight = (pageHeight - (margin * 2) - (gap * (rows - 1))) / rows;
 
         try {
-            // Loop through EVERY selected Excel file
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
                 statusDiv.innerText = `Processing file ${i + 1} of ${files.length}...`;
@@ -145,10 +143,9 @@
                 
                 if (!mediaFolder) {
                     console.warn(`No images found in ${file.name}, skipping...`);
-                    continue; // Skip this file and go to the next one
+                    continue; 
                 }
 
-                // Loop through all images in the current Excel file
                 for (const filename in mediaFolder.files) {
                     const fileObj = mediaFolder.files[filename];
                     
@@ -158,21 +155,17 @@
                             const processedImg = await stampPriceOnImage(fileData, customPrice);
                             
                             if (processedImg) {
-                                // If the current page is full, create a new blank page
                                 if (totalImageCount > 0 && totalImageCount % vouchersPerPage === 0) {
                                     doc.addPage();
                                 }
 
-                                // Calculate which column and row this image belongs in
                                 const currentIndexOnPage = totalImageCount % vouchersPerPage;
                                 const col = currentIndexOnPage % columns;
                                 const row = Math.floor(currentIndexOnPage / columns);
 
-                                // Calculate the X and Y coordinate on the PDF page
                                 const xPosition = margin + (col * (vWidth + gap));
                                 const yPosition = margin + (row * (vHeight + gap));
 
-                                // Add image to PDF exactly inside its grid slot
                                 doc.addImage(processedImg.dataUrl, 'JPEG', xPosition, yPosition, vWidth, vHeight);
                                 
                                 totalImageCount++;
@@ -192,7 +185,6 @@
 
             statusDiv.innerText = `Finalizing PDF with ${totalImageCount} total stamped vouchers...`;
             
-            // Trigger PDF download
             doc.save("combined_stamped_vouchers.pdf");
             statusDiv.innerText = `Success! Generated combined PDF with ${totalImageCount} vouchers.`;
 
@@ -214,22 +206,27 @@
                 canvas.width = img.width;
                 canvas.height = img.height;
                 
-                // Force a white background
                 ctx.fillStyle = "white";
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 
                 ctx.drawImage(img, 0, 0);
                 
-                ctx.fillStyle = "red"; 
+                // Set up the font
                 ctx.font = "bold 32px sans-serif"; 
                 
-                // Text coordinates on the original image canvas
+                // NEW POSITION: Move text to bottom left area
                 const xPosition = 25;
-                const yPosition = 50;
+                const yPosition = canvas.height - 35; // 35 pixels above the bottom edge
                 
+                // Optional: Add a small black border outline around the red text so it pops more against the blue background
+                ctx.strokeStyle = "black";
+                ctx.lineWidth = 2;
+                ctx.strokeText(textToStamp, xPosition, yPosition);
+                
+                // Draw the solid red text over the outline
+                ctx.fillStyle = "red"; 
                 ctx.fillText(textToStamp, xPosition, yPosition);
                 
-                // Convert to JPEG data URL for jsPDF
                 resolve({
                     dataUrl: canvas.toDataURL("image/jpeg", 0.9),
                     width: img.width,
@@ -248,3 +245,4 @@
 
 </body>
 </html>
+ 
