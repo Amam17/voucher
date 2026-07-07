@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voucher Price Stamper</title>
+    <title>Voucher Price Stamper to PDF</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -34,6 +34,210 @@
             text-align: left;
         }
         label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            font-size: 14px;
+            color: #444;
+        }
+        .text-input {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+        .file-input {
+            margin: 20px 0;
+            padding: 15px;
+            border: 2px dashed #1a73e8;
+            border-radius: 8px;
+            background: #f8fafd;
+            cursor: pointer;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            width: 100%;
+            font-weight: bold;
+        }
+        button:disabled { background-color: #ccc; }
+        #status {
+            margin-top: 20px;
+            font-weight: bold;
+            color: #2b2b2b;
+            word-break: break-word;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Voucher PDF Stamper</h2>
+    <p>Upload your Excel file to stamp a custom price and generate a print-ready PDF.</p>
+    
+    <div class="input-group">
+        <label for="priceInput">Enter Price / Text:</label>
+        <input type="text" id="priceInput" class="text-input" value="₦300" placeholder="e.g. ₦300, ₦500, Free" />
+    </div>
+
+    <input type="file" id="excelFile" class="file-input" accept=".xlsx" />
+    <button id="processBtn" disabled>Process and Download PDF</button>
+    
+    <div id="status">Ready. Select a file to begin.</div>
+</div>
+
+<script>
+    const fileInput = document.getElementById('excelFile');
+    const priceInput = document.getElementById('priceInput');
+    const processBtn = document.getElementById('processBtn');
+    const statusDiv = document.getElementById('status');
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length > 0) {
+            processBtn.disabled = false;
+            statusDiv.innerText = "File loaded. Ready to process.";
+        }
+    });
+
+    processBtn.addEventListener('click', async () => {
+        const file = fileInput.files[0];
+        const customPrice = priceInput.value.trim() || "₦300";
+        if (!file) return;
+
+        processBtn.disabled = true;
+        statusDiv.innerText = "Unpacking Excel archive and preparing PDF...";
+
+        try {
+            const zip = await JSZip.loadAsync(file);
+            const mediaFolder = zip.folder("xl/media");
+            
+            if (!mediaFolder) {
+                statusDiv.innerText = "Error: No 'xl/media/' folder found. No images to process.";
+                processBtn.disabled = false;
+                return;
+            }
+
+            // Initialize jsPDF (A4 size by default)
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
+            const margin = 10;
+            let currentY = margin;
+            let imageCount = 0;
+            let isFirstPage = true;
+
+            statusDiv.innerText = `Stamping "${customPrice}" and building PDF pages...`;
+
+            for (const filename in mediaFolder.files) {
+                const fileObj = mediaFolder.files[filename];
+                
+                if (!fileObj.dir) {
+                    try {
+                        const fileData = await fileObj.async("blob");
+                        const processedImg = await stampPriceOnImage(fileData, customPrice);
+                        
+                        if (processedImg) {
+                            // Calculate scaling to fit the A4 page width
+                            const maxImgWidth = pageWidth - (margin * 2);
+                            const scale = maxImgWidth / processedImg.width;
+                            const scaledHeight = processedImg.height * scale;
+
+                            // If the image exceeds the remaining page height, add a new page
+                            if (currentY + scaledHeight > pageHeight - margin && !isFirstPage) {
+                                doc.addPage();
+                                currentY = margin;
+                            }
+
+                            // Add image to PDF
+                            doc.addImage(processedImg.dataUrl, 'JPEG', margin, currentY, maxImgWidth, scaledHeight);
+                            
+                            // Move the Y coordinate down for the next image, plus some spacing
+                            currentY += scaledHeight + (margin / 2);
+                            isFirstPage = false;
+                            imageCount++;
+                        }
+                    } catch (err) {
+                        console.warn(`Could not process: ${filename}`);
+                    }
+                }
+            }
+
+            if (imageCount === 0) {
+                statusDiv.innerText = `Failed to process the images. Ensure the file contains valid graphics.`;
+                processBtn.disabled = false;
+                return;
+            }
+
+            statusDiv.innerText = `Finalizing PDF with ${imageCount} stamped vouchers...`;
+            
+            // Trigger PDF download
+            doc.save("stamped_vouchers.pdf");
+            statusDiv.innerText = `Success! Downloaded stamped_vouchers.pdf`;
+
+        } catch (error) {
+            console.error(error);
+            statusDiv.innerText = "An error occurred while generating the PDF.";
+        }
+        processBtn.disabled = false;
+    });
+
+    // Modified to return a Base64 Data URL specifically for jsPDF
+    function stampPriceOnImage(imageBlob, textToStamp) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                canvas.width = img.width;
+                canvas.height = img.height;
+                
+                // Force a white background (best practice for PDF JPEGs)
+                ctx.fillStyle = "white";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                ctx.drawImage(img, 0, 0);
+                
+                ctx.fillStyle = "red"; 
+                ctx.font = "bold 32px sans-serif"; 
+                
+                // Adjust coordinates here if the text is in the wrong spot
+                const xPosition = 25;
+                const yPosition = 50;
+                
+                ctx.fillText(textToStamp, xPosition, yPosition);
+                
+                // Convert to JPEG data URL for jsPDF
+                resolve({
+                    dataUrl: canvas.toDataURL("image/jpeg", 0.9),
+                    width: img.width,
+                    height: img.height
+                });
+            };
+            
+            img.onerror = () => {
+                reject(new Error("Format unsupported by canvas."));
+            };
+            
+            img.src = URL.createObjectURL(imageBlob);
+        });
+    }
+</script>
+
+</body>
+</html>
             display: block;
             margin-bottom: 5px;
             font-weight: bold;
