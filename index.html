@@ -1,3 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voucher Price Stamper</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f4f6f9;
+            color: #333;
+            padding: 20px;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            max-width: 500px;
+            width: 100%;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            box-sizing: border-box;
+            text-align: center;
+        }
+        h2 { margin-top: 0; color: #1a73e8; }
+        p { color: #666; font-size: 14px; }
+        .input-group {
+            margin: 15px 0;
+            text-align: left;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            font-size: 14px;
+            color: #444;
+        }
+        .text-input {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+        .file-input {
+            margin: 20px 0;
+            padding: 15px;
+            border: 2px dashed #1a73e8;
+            border-radius: 8px;
+            background: #f8fafd;
+            cursor: pointer;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            width: 100%;
+            font-weight: bold;
+        }
+        button:disabled { background-color: #ccc; }
+        #status {
+            margin-top: 20px;
+            font-weight: bold;
+            color: #2b2b2b;
+            word-break: break-word;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Voucher Price Stamper</h2>
+    <p>Upload your Excel file to stamp a custom price onto every embedded voucher card layout.</p>
+    
+    <div class="input-group">
+        <label for="priceInput">Enter Price / Text:</label>
+        <input type="text" id="priceInput" class="text-input" value="₦300" placeholder="e.g. ₦300, ₦500, Free" />
+    </div>
+
+    <input type="file" id="excelFile" class="file-input" accept=".xlsx" />
+    <button id="processBtn" disabled>Process and Download Vouchers</button>
+    
+    <div id="status">Ready. Select a file to begin.</div>
+</div>
+
 <script>
     const fileInput = document.getElementById('excelFile');
     const priceInput = document.getElementById('priceInput');
@@ -23,17 +120,94 @@
             const zip = await JSZip.loadAsync(file);
             const outputZip = new JSZip();
             let imageCount = 0;
+            let foundFiles = []; 
 
             const mediaFolder = zip.folder("xl/media");
             
             if (!mediaFolder) {
-                statusDiv.innerText = "Error: No embedded voucher graphics found in this Excel file.";
+                statusDiv.innerText = "Error: No 'xl/media/' folder found. The images might be linked differently.";
                 processBtn.disabled = false;
                 return;
             }
 
-            statusDiv.innerText = `Stamping "${customPrice}" onto voucher graphics...`;
+            statusDiv.innerText = `Attempting to stamp "${customPrice}"...`;
 
+            for (const filename in mediaFolder.files) {
+                const fileObj = mediaFolder.files[filename];
+                
+                if (!fileObj.dir) {
+                    foundFiles.push(filename.split('/').pop()); 
+                    
+                    try {
+                        const fileData = await fileObj.async("blob");
+                        const processedBlob = await stampPriceOnImage(fileData, customPrice);
+                        
+                        if (processedBlob) {
+                            outputZip.file(`stamped_${imageCount + 1}.png`, processedBlob);
+                            imageCount++;
+                        }
+                    } catch (err) {
+                        console.warn(`Could not process: ${filename}`);
+                    }
+                }
+            }
+
+            if (imageCount === 0) {
+                statusDiv.innerText = `Failed to read the images. Your Excel file contains these formats: ${foundFiles.join(", ")}`;
+                processBtn.disabled = false;
+                return;
+            }
+
+            statusDiv.innerText = `Packaging ${imageCount} stamped vouchers...`;
+            const finalZip = await outputZip.generateAsync({ type: "blob" });
+            
+            saveAs(finalZip, "stamped_vouchers.zip");
+            statusDiv.innerText = `Success! Downloaded ${imageCount} processed vouchers.`;
+
+        } catch (error) {
+            console.error(error);
+            statusDiv.innerText = "An error occurred while opening the ZIP archive.";
+        }
+        processBtn.disabled = false;
+    });
+
+    function stampPriceOnImage(imageBlob, textToStamp) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                canvas.width = img.width;
+                canvas.height = img.height;
+                
+                ctx.drawImage(img, 0, 0);
+                
+                ctx.fillStyle = "red"; 
+                ctx.font = "bold 32px sans-serif"; 
+                
+                const xPosition = 25;
+                const yPosition = 50;
+                
+                ctx.fillText(textToStamp, xPosition, yPosition);
+                
+                canvas.toBlob((blob) => {
+                    resolve(blob);
+                }, "image/png");
+            };
+            
+            img.onerror = () => {
+                reject(new Error("Format unsupported by canvas."));
+            };
+            
+            img.src = URL.createObjectURL(imageBlob);
+        });
+    }
+</script>
+
+</body>
+</html>
             // Loop through files and safely filter for valid web images
             for (const filename in mediaFolder.files) {
                 const fileObj = mediaFolder.files[filename];
