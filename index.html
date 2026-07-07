@@ -133,11 +133,11 @@
             const pageWidth = doc.internal.pageSize.getWidth();
             const pageHeight = doc.internal.pageSize.getHeight();
             
-            // --- GRID LAYOUT SETTINGS (24 Vouchers = 3 cols x 8 rows) ---
+            // --- GRID LAYOUT SETTINGS (24 Vouchers = 2 cols x 12 rows) ---
             const margin = 10; // 10mm border around the entire A4 page
             const gap = 3; // 3mm space between each voucher card
-            const columns = 3;
-            const rows = 8;
+            const columns = 2; // Changed to 2 columns
+            const rows = 12; // Changed to 12 rows
             const vouchersPerPage = columns * rows; 
             
             // Calculate the exact width and height each voucher must be to fit the grid perfectly
