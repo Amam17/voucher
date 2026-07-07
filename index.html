@@ -117,6 +117,9 @@
             statusDiv.innerText = "Loading visual preview...";
             processBtn.disabled = true;
             
+            // Allow the UI to update before doing heavy lifting
+            await new Promise(resolve => setTimeout(resolve, 50));
+            
             try {
                 const zip = await JSZip.loadAsync(fileInput.files[0]);
                 const mediaFolder = zip.folder("xl/media");
@@ -127,8 +130,10 @@
                         const firstFile = mediaFolder.files[files[0]];
                         const blob = await firstFile.async("blob");
                         
+                        const objectUrl = URL.createObjectURL(blob);
                         previewImageObj = new Image();
                         previewImageObj.onload = () => {
+                            URL.revokeObjectURL(objectUrl); // Free up memory immediately
                             finalX = 25;
                             finalY = previewImageObj.height - 35;
                             
@@ -138,7 +143,7 @@
                             processBtn.disabled = false;
                             statusDiv.innerText = `${fileInput.files.length} file(s) loaded. Tap the image to place the text, then click Process.`;
                         };
-                        previewImageObj.src = URL.createObjectURL(blob);
+                        previewImageObj.src = objectUrl;
                     }
                 }
             } catch (e) {
@@ -213,18 +218,16 @@
                 
                 if (!mediaFolder) continue; 
 
-                // Get all valid image files in this Excel document
                 const imageFileNames = Object.keys(mediaFolder.files).filter(name => !mediaFolder.files[name].dir);
                 
                 for (let j = 0; j < imageFileNames.length; j++) {
                     const filename = imageFileNames[j];
                     const fileObj = mediaFolder.files[filename];
                     
-                    // Live UI update to show exact progress and prevent freezing
                     statusDiv.innerText = `File ${i + 1} of ${files.length}: Processing image ${j + 1} of ${imageFileNames.length}...`;
                     
-                    // Force the browser to take a tiny 10-millisecond break so the screen doesn't freeze
-                    await new Promise(resolve => setTimeout(resolve, 10));
+                    // Force the browser to render the text update and clear its head
+                    await new Promise(resolve => setTimeout(resolve, 15));
 
                     try {
                         const fileData = await fileObj.async("blob");
@@ -245,6 +248,9 @@
                             doc.addImage(processedImg.dataUrl, 'JPEG', xPosition, yPosition, vWidth, vHeight);
                             
                             totalImageCount++;
+                            
+                            // Free up the processed image data from memory now that it is in the PDF
+                            processedImg.dataUrl = null; 
                         }
                     } catch (err) {
                         console.warn(`Could not process image ${filename}`);
@@ -259,7 +265,7 @@
             }
 
             statusDiv.innerText = `Finalizing PDF with ${totalImageCount} total stamped vouchers. Please wait...`;
-            await new Promise(resolve => setTimeout(resolve, 50)); // One last breath before building the PDF
+            await new Promise(resolve => setTimeout(resolve, 100)); 
             
             doc.save("combined_stamped_vouchers.pdf");
             statusDiv.innerText = `Success! Generated combined PDF with ${totalImageCount} vouchers.`;
@@ -274,8 +280,11 @@
     function stampPriceOnImage(imageBlob, textToStamp) {
         return new Promise((resolve, reject) => {
             const img = new Image();
+            const objectUrl = URL.createObjectURL(imageBlob);
             
             img.onload = () => {
+                URL.revokeObjectURL(objectUrl); // Delete the temp image from memory immediately
+                
                 const drawCanvas = document.createElement('canvas');
                 const ctx = drawCanvas.getContext('2d');
                 
@@ -294,22 +303,21 @@
                 ctx.fillText(textToStamp, finalX, finalY);
                 
                 resolve({
-                    // Quality reduced from 0.9 to 0.7 to drastically improve mobile memory usage
-                    dataUrl: drawCanvas.toDataURL("image/jpeg", 0.7),
+                    dataUrl: drawCanvas.toDataURL("image/jpeg", 0.6), // Compression slightly increased to save memory
                     width: img.width,
                     height: img.height
                 });
             };
             
             img.onerror = () => {
+                URL.revokeObjectURL(objectUrl); // Prevent memory leak on failure
                 reject(new Error("Format unsupported by canvas."));
             };
             
-            img.src = URL.createObjectURL(imageBlob);
+            img.src = objectUrl;
         });
     }
 </script>
 
 </body>
 </html>
- 
