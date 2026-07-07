@@ -1,39 +1,114 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voucher Price Stamper</title>
-    <!-- Include JSZip and FileSaver libraries -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: #f4f6f9;
-            color: #333;
-            padding: 20px;
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+<script>
+    const fileInput = document.getElementById('excelFile');
+    const priceInput = document.getElementById('priceInput');
+    const processBtn = document.getElementById('processBtn');
+    const statusDiv = document.getElementById('status');
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length > 0) {
+            processBtn.disabled = false;
+            statusDiv.innerText = "File loaded. Ready to process.";
         }
-        .container {
-            max-width: 500px;
-            width: 100%;
-            background: white;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            box-sizing: border-box;
-            text-align: center;
+    });
+
+    processBtn.addEventListener('click', async () => {
+        const file = fileInput.files[0];
+        const customPrice = priceInput.value.trim() || "₦300";
+        if (!file) return;
+
+        processBtn.disabled = true;
+        statusDiv.innerText = "Unpacking Excel archive...";
+
+        try {
+            const zip = await JSZip.loadAsync(file);
+            const outputZip = new JSZip();
+            let imageCount = 0;
+
+            const mediaFolder = zip.folder("xl/media");
+            
+            if (!mediaFolder) {
+                statusDiv.innerText = "Error: No embedded voucher graphics found in this Excel file.";
+                processBtn.disabled = false;
+                return;
+            }
+
+            statusDiv.innerText = `Stamping "${customPrice}" onto voucher graphics...`;
+
+            // Loop through files and safely filter for valid web images
+            for (const filename in mediaFolder.files) {
+                const fileObj = mediaFolder.files[filename];
+                
+                // Check if the file is a standard image (png, jpg, jpeg, gif)
+                if (!fileObj.dir && filename.match(/\.(png|jpe?g|gif)$/i)) {
+                    try {
+                        const fileData = await fileObj.async("blob");
+                        const processedBlob = await stampPriceOnImage(fileData, customPrice);
+                        
+                        if (processedBlob) {
+                            outputZip.file(`stamped_${filename.split('/').pop()}`, processedBlob);
+                            imageCount++;
+                        }
+                    } catch (err) {
+                        console.warn(`Skipped unsupported file format: ${filename}`);
+                    }
+                }
+            }
+
+            if (imageCount === 0) {
+                statusDiv.innerText = "No supported images (PNG, JPG) were found in the file. Ensure the Excel images are not vector graphics.";
+                processBtn.disabled = false;
+                return;
+            }
+
+            statusDiv.innerText = `Packaging ${imageCount} stamped vouchers...`;
+            const finalZip = await outputZip.generateAsync({ type: "blob" });
+            
+            // Trigger browser system file download
+            saveAs(finalZip, "stamped_vouchers.zip");
+            statusDiv.innerText = `Success! Downloaded ${imageCount} processed vouchers. Check your downloads folder.`;
+
+        } catch (error) {
+            console.error(error);
+            statusDiv.innerText = "An error occurred while processing the file.";
         }
-        h2 { margin-top: 0; color: #1a73e8; }
-        p { color: #666; font-size: 14px; }
-        .input-group {
-            margin: 15px 0;
-            text-align: left;
-        }
+        processBtn.disabled = false;
+    });
+
+    function stampPriceOnImage(imageBlob, textToStamp) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                canvas.width = img.width;
+                canvas.height = img.height;
+                
+                ctx.drawImage(img, 0, 0);
+                
+                ctx.fillStyle = "red"; 
+                ctx.font = "bold 32px sans-serif"; 
+                
+                const xPosition = 25;
+                const yPosition = 50;
+                
+                ctx.fillText(textToStamp, xPosition, yPosition);
+                
+                canvas.toBlob((blob) => {
+                    resolve(blob);
+                }, "image/png");
+            };
+            
+            // Safety net: Rejects the promise if the image is corrupted or unsupported
+            img.onerror = () => {
+                reject(new Error("Image format is not supported by the browser canvas."));
+            };
+            
+            img.src = URL.createObjectURL(imageBlob);
+        });
+    }
+</script>
         label {
             display: block;
             margin-bottom: 5px;
