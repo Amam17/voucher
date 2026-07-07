@@ -126,7 +126,6 @@
                 const mediaFolder = zip.folder("xl/media");
                 
                 if (mediaFolder) {
-                    // Filter: Ensure it is strictly a PNG or JPG file, ignoring hidden XML or vector files
                     const files = Object.keys(mediaFolder.files).filter(name => {
                         return !mediaFolder.files[name].dir && name.match(/\.(png|jpe?g)$/i);
                     });
@@ -141,7 +140,6 @@
                         const objectUrl = URL.createObjectURL(blob);
                         previewImageObj = new Image();
                         
-                        // Safety Net 1: Successfully loaded
                         previewImageObj.onload = () => {
                             URL.revokeObjectURL(objectUrl);
                             
@@ -157,7 +155,6 @@
                             zip = null;
                         };
 
-                        // Safety Net 2: Failed to load
                         previewImageObj.onerror = () => {
                             URL.revokeObjectURL(objectUrl);
                             statusDiv.innerText = "Error: Browser could not display the preview image format. You can still try processing.";
@@ -165,7 +162,6 @@
                             zip = null;
                         };
 
-                        // Setting the source triggers the load or error events above
                         previewImageObj.src = objectUrl;
                     } else {
                         statusDiv.innerText = "No standard web images (PNG/JPG) found in the Excel file.";
@@ -253,7 +249,6 @@
                     continue; 
                 }
 
-                // Filter out non-images in the main loop as well
                 const imageFileNames = Object.keys(mediaFolder.files).filter(name => {
                     return !mediaFolder.files[name].dir && name.match(/\.(png|jpe?g)$/i);
                 });
@@ -323,38 +318,36 @@
             img.onload = () => {
                 URL.revokeObjectURL(objectUrl);
                 
-                const scaleDownFactor = 400 / img.width;
-                
                 const drawCanvas = document.createElement('canvas');
                 const ctx = drawCanvas.getContext('2d');
                 
-                drawCanvas.width = 400;
-                drawCanvas.height = img.height * scaleDownFactor;
+                // RESTORED: Using maximum original quality and full resolution
+                drawCanvas.width = img.width;
+                drawCanvas.height = img.height;
                 
                 ctx.fillStyle = "white";
                 ctx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
                 
                 ctx.drawImage(img, 0, 0, drawCanvas.width, drawCanvas.height);
                 
-                const fontSize = Math.floor(26 * scaleDownFactor);
-                ctx.font = fontSize + "px sans-serif"; 
+                ctx.font = "26px sans-serif"; 
                 ctx.fillStyle = "black"; 
                 ctx.textAlign = "left";
                 
-                const scaledX = finalX * scaleDownFactor;
-                const scaledY = finalY * scaleDownFactor;
+                // Using the exact tap coordinates directly on the full resolution canvas
+                ctx.fillText(textToStamp, finalX, finalY);
                 
-                ctx.fillText(textToStamp, scaledX, scaledY);
+                // RESTORED: Exporting at high-quality 0.9 JPEG
+                const finalDataUrl = drawCanvas.toDataURL("image/jpeg", 0.9);
                 
-                const finalDataUrl = drawCanvas.toDataURL("image/jpeg", 0.6);
-                
+                // Critical memory fix remains intact
                 drawCanvas.width = 0;
                 drawCanvas.height = 0;
                 
                 resolve({
                     dataUrl: finalDataUrl,
-                    width: 400,
-                    height: img.height * scaleDownFactor
+                    width: img.width,
+                    height: img.height
                 });
             };
             
