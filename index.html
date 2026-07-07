@@ -116,14 +116,12 @@
         processBtn.disabled = true;
         let totalImageCount = 0;
 
-        // Initialize jsPDF (A4 size by default)
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
         
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
         
-        // --- GRID LAYOUT SETTINGS (24 Vouchers = 2 cols x 12 rows) ---
         const margin = 10; 
         const gap = 3; 
         const columns = 2;
@@ -211,20 +209,15 @@
                 
                 ctx.drawImage(img, 0, 0);
                 
-                // Set up the font
-                ctx.font = "bold 32px sans-serif"; 
+                // Set up the font to be regular (not bold) and slightly smaller
+                ctx.font = "26px sans-serif"; 
                 
-                // NEW POSITION: Move text to bottom left area
+                // Move text to bottom left area
                 const xPosition = 25;
-                const yPosition = canvas.height - 35; // 35 pixels above the bottom edge
+                const yPosition = canvas.height - 35;
                 
-                // Optional: Add a small black border outline around the red text so it pops more against the blue background
-                ctx.strokeStyle = "black";
-                ctx.lineWidth = 2;
-                ctx.strokeText(textToStamp, xPosition, yPosition);
-                
-                // Draw the solid red text over the outline
-                ctx.fillStyle = "red"; 
+                // Draw the solid black text
+                ctx.fillStyle = "black"; 
                 ctx.fillText(textToStamp, xPosition, yPosition);
                 
                 resolve({
@@ -245,4 +238,3 @@
 
 </body>
 </html>
- 
