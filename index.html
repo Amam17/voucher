@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-Batch Voucher PDF Stamper</title>
+    <title>Visual Voucher PDF Stamper</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
@@ -81,17 +81,22 @@
 <body>
 
 <div class="container">
-    <h2>Multi-Batch Voucher PDF Stamper</h2>
-    <p>Select <strong>multiple Excel files</strong> at once to combine them into a single print-ready PDF (2x12 Grid).</p>
+    <h2>Visual Voucher PDF Stamper</h2>
+    <p>Upload your Excel files, then tap the image below to place your price exactly where you want it.</p>
     
     <div class="input-group">
         <label for="priceInput">Enter Price / Text:</label>
-        <input type="text" id="priceInput" class="text-input" value="₦300" placeholder="e.g. ₦300, ₦500, Free" />
+        <input type="text" id="priceInput" class="text-input" value="₦300" />
     </div>
 
     <input type="file" id="excelFile" class="file-input" accept=".xlsx" multiple />
-    <button id="processBtn" disabled>Process and Download PDF</button>
     
+    <div id="previewArea" style="display: none; margin-top: 15px; margin-bottom: 15px;">
+        <label style="color: #1a73e8;">Tap the image below to move the text:</label>
+        <canvas id="previewCanvas" style="max-width: 100%; border: 2px solid #1a73e8; border-radius: 6px; cursor: crosshair; touch-action: none; margin-top: 10px;"></canvas>
+    </div>
+
+    <button id="processBtn" disabled>Process and Download PDF</button>
     <div id="status">Ready. Select file(s) to begin.</div>
 </div>
 
@@ -100,14 +105,89 @@
     const priceInput = document.getElementById('priceInput');
     const processBtn = document.getElementById('processBtn');
     const statusDiv = document.getElementById('status');
+    const previewArea = document.getElementById('previewArea');
+    const canvas = document.getElementById('previewCanvas');
 
-    fileInput.addEventListener('change', () => {
+    // These variables will store the exact X and Y coordinates you tap on
+    let finalX = 25;
+    let finalY = 100;
+    let previewImageObj = null;
+
+    // Listen for file uploads to generate the preview
+    fileInput.addEventListener('change', async () => {
         if (fileInput.files.length > 0) {
-            processBtn.disabled = false;
-            statusDiv.innerText = `${fileInput.files.length} file(s) loaded. Ready to process.`;
+            statusDiv.innerText = "Loading visual preview...";
+            processBtn.disabled = true;
+            
+            try {
+                const zip = await JSZip.loadAsync(fileInput.files[0]);
+                const mediaFolder = zip.folder("xl/media");
+                
+                if (mediaFolder) {
+                    const files = Object.keys(mediaFolder.files).filter(name => !mediaFolder.files[name].dir);
+                    if (files.length > 0) {
+                        const firstFile = mediaFolder.files[files[0]];
+                        const blob = await firstFile.async("blob");
+                        
+                        previewImageObj = new Image();
+                        previewImageObj.onload = () => {
+                            // Set initial default position for the text
+                            finalX = 25;
+                            finalY = previewImageObj.height - 35;
+                            
+                            previewArea.style.display = 'block';
+                            drawPreview();
+                            
+                            processBtn.disabled = false;
+                            statusDiv.innerText = `${fileInput.files.length} file(s) loaded. Tap the image to place the text, then click Process.`;
+                        };
+                        previewImageObj.src = URL.createObjectURL(blob);
+                    }
+                }
+            } catch (e) {
+                console.error(e);
+                statusDiv.innerText = "Error loading preview. You can still try to process.";
+                processBtn.disabled = false;
+            }
         }
     });
 
+    // Draw the image and the text on the canvas
+    function drawPreview() {
+        if (!previewImageObj) return;
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = previewImageObj.width;
+        canvas.height = previewImageObj.height;
+        
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(previewImageObj, 0, 0);
+        
+        ctx.font = "26px sans-serif";
+        ctx.fillStyle = "black";
+        ctx.textAlign = "left";
+        
+        const customPrice = priceInput.value.trim() || "₦300";
+        ctx.fillText(customPrice, finalX, finalY);
+    }
+
+    // Update the preview immediately if you change the text in the input box
+    priceInput.addEventListener('input', drawPreview);
+
+    // Calculate exactly where your finger tapped on the canvas
+    canvas.addEventListener('pointerdown', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        
+        finalX = (e.clientX - rect.left) * scaleX;
+        finalY = (e.clientY - rect.top) * scaleY;
+        
+        drawPreview();
+    });
+
+    // Process all files when the button is clicked
     processBtn.addEventListener('click', async () => {
         const files = fileInput.files;
         const customPrice = priceInput.value.trim() || "₦300";
@@ -140,7 +220,6 @@
                 const mediaFolder = zip.folder("xl/media");
                 
                 if (!mediaFolder) {
-                    console.warn(`No images found in ${file.name}, skipping...`);
                     continue; 
                 }
 
@@ -169,14 +248,14 @@
                                 totalImageCount++;
                             }
                         } catch (err) {
-                            console.warn(`Could not process image ${filename} in ${file.name}`);
+                            console.warn(`Could not process image ${filename}`);
                         }
                     }
                 }
             }
 
             if (totalImageCount === 0) {
-                statusDiv.innerText = `Failed to find valid voucher graphics in any selected file.`;
+                statusDiv.innerText = `Failed to find valid voucher graphics.`;
                 processBtn.disabled = false;
                 return;
             }
@@ -198,32 +277,26 @@
             const img = new Image();
             
             img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
+                const drawCanvas = document.createElement('canvas');
+                const ctx = drawCanvas.getContext('2d');
                 
-                canvas.width = img.width;
-                canvas.height = img.height;
+                drawCanvas.width = img.width;
+                drawCanvas.height = img.height;
                 
                 ctx.fillStyle = "white";
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
                 
                 ctx.drawImage(img, 0, 0);
                 
-                // Font settings
                 ctx.font = "26px sans-serif"; 
                 ctx.fillStyle = "black"; 
+                ctx.textAlign = "left";
                 
-                // Set text alignment to the right side
-                ctx.textAlign = "right";
-                
-                // Position: 25 pixels from the right edge, moved up to align with "30 Days"
-                const xPosition = canvas.width - 25;
-                const yPosition = canvas.height - 70; // Changed from -35 to -70 to raise the text
-                
-                ctx.fillText(textToStamp, xPosition, yPosition);
+                // Uses the exact X and Y coordinates from your tap on the preview!
+                ctx.fillText(textToStamp, finalX, finalY);
                 
                 resolve({
-                    dataUrl: canvas.toDataURL("image/jpeg", 0.9),
+                    dataUrl: drawCanvas.toDataURL("image/jpeg", 0.9),
                     width: img.width,
                     height: img.height
                 });
@@ -240,3 +313,4 @@
 
 </body>
 </html>
+ 
