@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voucher PDF Grid Stamper</title>
+    <title>Multi-Batch Voucher PDF Stamper</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
@@ -81,18 +81,18 @@
 <body>
 
 <div class="container">
-    <h2>Voucher PDF Grid Stamper</h2>
-    <p>Upload your Excel file to stamp a custom price and generate a 24-per-page A4 PDF.</p>
+    <h2>Multi-Batch Voucher PDF Stamper</h2>
+    <p>Select <strong>multiple Excel files</strong> at once to combine them into a single print-ready PDF (2x12 Grid).</p>
     
     <div class="input-group">
         <label for="priceInput">Enter Price / Text:</label>
         <input type="text" id="priceInput" class="text-input" value="₦300" placeholder="e.g. ₦300, ₦500, Free" />
     </div>
 
-    <input type="file" id="excelFile" class="file-input" accept=".xlsx" />
+    <input type="file" id="excelFile" class="file-input" accept=".xlsx" multiple />
     <button id="processBtn" disabled>Process and Download PDF</button>
     
-    <div id="status">Ready. Select a file to begin.</div>
+    <div id="status">Ready. Select file(s) to begin.</div>
 </div>
 
 <script>
@@ -104,99 +104,101 @@
     fileInput.addEventListener('change', () => {
         if (fileInput.files.length > 0) {
             processBtn.disabled = false;
-            statusDiv.innerText = "File loaded. Ready to process.";
+            statusDiv.innerText = `${fileInput.files.length} file(s) loaded. Ready to process.`;
         }
     });
 
     processBtn.addEventListener('click', async () => {
-        const file = fileInput.files[0];
+        const files = fileInput.files;
         const customPrice = priceInput.value.trim() || "₦300";
-        if (!file) return;
+        if (files.length === 0) return;
 
         processBtn.disabled = true;
-        statusDiv.innerText = "Unpacking Excel archive and preparing PDF...";
+        let totalImageCount = 0;
+
+        // Initialize jsPDF (A4 size by default)
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        
+        // --- GRID LAYOUT SETTINGS (24 Vouchers = 2 cols x 12 rows) ---
+        const margin = 10; // 10mm border around the entire A4 page
+        const gap = 3; // 3mm space between each voucher card
+        const columns = 2;
+        const rows = 12;
+        const vouchersPerPage = columns * rows; 
+        
+        // Calculate the exact width and height each voucher must be
+        const vWidth = (pageWidth - (margin * 2) - (gap * (columns - 1))) / columns;
+        const vHeight = (pageHeight - (margin * 2) - (gap * (rows - 1))) / rows;
 
         try {
-            const zip = await JSZip.loadAsync(file);
-            const mediaFolder = zip.folder("xl/media");
-            
-            if (!mediaFolder) {
-                statusDiv.innerText = "Error: No 'xl/media/' folder found. No images to process.";
-                processBtn.disabled = false;
-                return;
-            }
+            // Loop through EVERY selected Excel file
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                statusDiv.innerText = `Processing file ${i + 1} of ${files.length}...`;
 
-            // Initialize jsPDF (A4 size by default)
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
-            
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const pageHeight = doc.internal.pageSize.getHeight();
-            
-            // --- GRID LAYOUT SETTINGS (24 Vouchers = 2 cols x 12 rows) ---
-            const margin = 10; // 10mm border around the entire A4 page
-            const gap = 3; // 3mm space between each voucher card
-            const columns = 2; // Changed to 2 columns
-            const rows = 12; // Changed to 12 rows
-            const vouchersPerPage = columns * rows; 
-            
-            // Calculate the exact width and height each voucher must be to fit the grid perfectly
-            const vWidth = (pageWidth - (margin * 2) - (gap * (columns - 1))) / columns;
-            const vHeight = (pageHeight - (margin * 2) - (gap * (rows - 1))) / rows;
-
-            let imageCount = 0;
-
-            statusDiv.innerText = `Stamping "${customPrice}" and building 24-voucher grid layout...`;
-
-            for (const filename in mediaFolder.files) {
-                const fileObj = mediaFolder.files[filename];
+                const zip = await JSZip.loadAsync(file);
+                const mediaFolder = zip.folder("xl/media");
                 
-                if (!fileObj.dir) {
-                    try {
-                        const fileData = await fileObj.async("blob");
-                        const processedImg = await stampPriceOnImage(fileData, customPrice);
-                        
-                        if (processedImg) {
-                            // If the current page is full (has 24 images on it), create a new blank page
-                            if (imageCount > 0 && imageCount % vouchersPerPage === 0) {
-                                doc.addPage();
-                            }
+                if (!mediaFolder) {
+                    console.warn(`No images found in ${file.name}, skipping...`);
+                    continue; // Skip this file and go to the next one
+                }
 
-                            // Calculate exactly which column and row this image belongs in
-                            const currentIndexOnPage = imageCount % vouchersPerPage;
-                            const col = currentIndexOnPage % columns;
-                            const row = Math.floor(currentIndexOnPage / columns);
-
-                            // Calculate the X and Y coordinate on the PDF page
-                            const xPosition = margin + (col * (vWidth + gap));
-                            const yPosition = margin + (row * (vHeight + gap));
-
-                            // Add image to PDF exactly inside its grid slot
-                            doc.addImage(processedImg.dataUrl, 'JPEG', xPosition, yPosition, vWidth, vHeight);
+                // Loop through all images in the current Excel file
+                for (const filename in mediaFolder.files) {
+                    const fileObj = mediaFolder.files[filename];
+                    
+                    if (!fileObj.dir) {
+                        try {
+                            const fileData = await fileObj.async("blob");
+                            const processedImg = await stampPriceOnImage(fileData, customPrice);
                             
-                            imageCount++;
+                            if (processedImg) {
+                                // If the current page is full, create a new blank page
+                                if (totalImageCount > 0 && totalImageCount % vouchersPerPage === 0) {
+                                    doc.addPage();
+                                }
+
+                                // Calculate which column and row this image belongs in
+                                const currentIndexOnPage = totalImageCount % vouchersPerPage;
+                                const col = currentIndexOnPage % columns;
+                                const row = Math.floor(currentIndexOnPage / columns);
+
+                                // Calculate the X and Y coordinate on the PDF page
+                                const xPosition = margin + (col * (vWidth + gap));
+                                const yPosition = margin + (row * (vHeight + gap));
+
+                                // Add image to PDF exactly inside its grid slot
+                                doc.addImage(processedImg.dataUrl, 'JPEG', xPosition, yPosition, vWidth, vHeight);
+                                
+                                totalImageCount++;
+                            }
+                        } catch (err) {
+                            console.warn(`Could not process image ${filename} in ${file.name}`);
                         }
-                    } catch (err) {
-                        console.warn(`Could not process: ${filename}`);
                     }
                 }
             }
 
-            if (imageCount === 0) {
-                statusDiv.innerText = `Failed to process the images. Ensure the file contains valid graphics.`;
+            if (totalImageCount === 0) {
+                statusDiv.innerText = `Failed to find valid voucher graphics in any selected file.`;
                 processBtn.disabled = false;
                 return;
             }
 
-            statusDiv.innerText = `Finalizing PDF with ${imageCount} stamped vouchers...`;
+            statusDiv.innerText = `Finalizing PDF with ${totalImageCount} total stamped vouchers...`;
             
             // Trigger PDF download
-            doc.save("stamped_vouchers_grid.pdf");
-            statusDiv.innerText = `Success! Downloaded stamped_vouchers_grid.pdf`;
+            doc.save("combined_stamped_vouchers.pdf");
+            statusDiv.innerText = `Success! Generated combined PDF with ${totalImageCount} vouchers.`;
 
         } catch (error) {
             console.error(error);
-            statusDiv.innerText = "An error occurred while generating the PDF.";
+            statusDiv.innerText = "An error occurred while merging the files.";
         }
         processBtn.disabled = false;
     });
